@@ -1,0 +1,83 @@
+import { View } from 'react-native'
+import { Card, Text, TextButton } from '../../ui'
+import { useRouter } from 'expo-router'
+import { BookOpen } from 'lucide-react-native'
+import FeedMedia from './FeedMedia'
+import { SectionHeading } from './layout'
+import { absUrl, openHref } from '../../lib/links'
+import { useTokens } from '../../theme'
+import type { SectionProps } from '../../types/home'
+
+// Mirror of controller-service components/visitor/home/BlogTeaser.tsx at the mobile breakpoint.
+
+interface BlogTeaserItem {
+  title: string
+  excerpt: string
+  url: string
+  imageUrl: string
+  /** Optional MP4/WebM; `imageUrl` is its poster. */
+  video?: string
+}
+
+// homepage-sections safeHref: http(s) or a site-relative path only.
+const safeHref = (url: string | null | undefined) => {
+  const u = (url ?? '').trim()
+  return /^(https?:\/\/|\/(?![/\\]))/i.test(u) ? u : null
+}
+
+export default function BlogTeaser({ section }: SectionProps) {
+  const router = useRouter()
+  const t = useTokens()
+  const items = (section.items as BlogTeaserItem[] | null) ?? []
+  if (items.length === 0) return null
+  const ctaUrl = safeHref(section.copy.ctaUrl)
+  const ctaLabel = section.copy.ctaLabel
+
+  return (
+    <View className="bg-surface px-4 py-12">
+      <SectionHeading eyebrow={section.copy.eyebrow ?? 'Guides'} title={section.copy.title ?? 'Tips and how-tos'} />
+      <View className="gap-5">
+        {items.map((item, i) => {
+          const img = absUrl(item.imageUrl)
+          return (
+            <Card
+              key={`${item.url}-${i}`}
+              onPress={() => openHref(router, item.url)}
+              accessibilityLabel={item.title}
+              padded={false}
+              className="overflow-hidden"
+            >
+              <View className="relative overflow-hidden bg-surface-secondary" style={{ aspectRatio: section.aspect ?? 16 / 9 }}>
+                {img || item.video ? (
+                  <View className="h-full w-full bg-gray-200 dark:bg-gray-700">
+                    <FeedMedia image={img} video={item.video} style={{ width: '100%', height: '100%' }} transition={300} />
+                  </View>
+                ) : (
+                  <View className="h-full w-full items-center justify-center">
+                    <BookOpen size={40} color={t.foregroundMuted} />
+                  </View>
+                )}
+              </View>
+              <View className="grow gap-2 p-5">
+                <Text className="text-base font-bold text-foreground" numberOfLines={2}>
+                  {item.title}
+                </Text>
+                {item.excerpt ? (
+                  <Text className="text-sm text-foreground-secondary" numberOfLines={3}>
+                    {item.excerpt}
+                  </Text>
+                ) : null}
+                <Text className="mt-auto pt-2 text-sm font-semibold text-accent-600 dark:text-accent-400">Read more</Text>
+              </View>
+            </Card>
+          )
+        })}
+      </View>
+      {ctaUrl && ctaLabel ? (
+        <View className="mt-6 flex-row justify-center">
+          <TextButton label={ctaLabel} onPress={() => openHref(router, ctaUrl)} />
+        </View>
+      ) : null}
+    </View>
+  )
+}

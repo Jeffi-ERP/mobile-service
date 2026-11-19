@@ -1,0 +1,139 @@
+import { useState } from 'react'
+import { View } from 'react-native'
+import { Card, Screen, ScreenHeader, Text, useBottomInset } from '../../src/ui'
+import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useQuery } from '@tanstack/react-query'
+import { getCategory, listCategories, withDetails, type CategoryDetail } from '../../src/api/categories'
+import { getHome } from '../../src/api/home'
+import CategoryIcon from '../../src/components/catalog/CategoryIcon'
+import CompareBar from '../../src/components/catalog/CompareBar'
+import PagedProductGrid from '../../src/components/catalog/PagedProductGrid'
+import { EmptyCard, InfiniteFooter, ListingPageSkeleton } from '../../src/components/catalog/Paged'
+import { SortButton, SortSheet } from '../../src/components/catalog/FilterSheet'
+import { productSortKey, type ProductSortId } from '../../src/components/catalog/listing'
+import { Grid } from '../../src/components/home/layout'
+import { accent } from '../../src/theme'
+
+// Mirror of controller-service app/(storefront)/categories/[slug]/page.tsx at the mobile breakpoint.
+
+const PAGE_SIZE = 24
+
+function SubcategoryTile({ category }: { category: CategoryDetail }) {
+  const router = useRouter()
+  return (
+    <Card
+      onPress={() => router.push(`/category/${category.slug}`)}
+      accessibilityLabel={category.name}
+      padded={false}
+      wrapperClassName="grow"
+      className="flex-1 items-center gap-1.5 p-2"
+    >
+      <View className="h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-100 dark:bg-accent-900/30">
+        <CategoryIcon iconName={category.icon_name} categoryName={category.name} size={20} color={accent[600]} />
+      </View>
+      <View className="min-h-[32px] items-center justify-center">
+        <Text numberOfLines={2} className="text-center text-[11px] font-semibold leading-[14px] text-foreground">
+          {category.name}
+        </Text>
+      </View>
+    </Card>
+  )
+}
+
+export default function CategoryScreen() {
+  const { slug, sort, dir, order } = useLocalSearchParams<{ slug: string; sort?: string; dir?: string; order?: string }>()
+  const bottomInset = useBottomInset(0)
+  const [sortId, setSortId] = useState<ProductSortId>(() => productSortKey(sort, dir ?? order))
+  const [sortOpen, setSortOpen] = useState(false)
+  const { data: all, isLoading, error, refetch } = useQuery({ queryKey: ['categories'], queryFn: listCategories, staleTime: 5 * 60_000 })
+  const { data: home } = useQuery({ queryKey: ['home', 'store'], queryFn: () => getHome(), staleTime: 120_000 })
+  // The page profile (tagline, default sort, buying guide, FAQs) rides on its own request so the tree stays small.
+  const { data: profile } = useQuery({ queryKey: ['category', slug], queryFn: () => getCategory(slug), staleTime: 5 * 60_000 })
+  const categories = withDetails(all ?? [], home?.data.mainCategories as Record<string, any>[] | undefined)
+  const category = categories.find(c => c.slug === slug)
+  const tagline = profile?.tagline ?? category?.tagline ?? null
+  // The category's default_sort opens the listing when the link carries no ?sort and the shopper has not picked one.
+  const defaultSort = !sort && profile?.default_sort ? productSortKey(profile.default_sort) : 'featured'
+  const effectiveSort = sortId === 'featured' ? defaultSort : sortId
+  const subcategories = category
+    ? categories.filter(c => c.parent_category_id === category.id).sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0))
+    : []
+  const header = <ScreenHeader title={category?.name} />
+
+  if (isLoading) return <Screen header={header} mode="none" loading skeleton={<ListingPageSkeleton cols={2} gap={12} />} />
+
+  if (error && !all) {
+    return (
+      <Screen header={header} mode="none">
+        <View className="p-4">
+          <InfiniteFooter
+            shown={0}
+            control={{ hasMore: false, loadingMore: false, error: error.message || 'Failed to load', loadMore: refetch, retry: refetch }}
+          />
+        </View>
+      </Screen>
+    )
+  }
+
+  if (!category) {
+    return (
+      <Screen header={header} mode="none">
+        <View className="p-4">
+          <EmptyCard title="Category not found" body="This category doesn't exist or is no longer available." />
+        </View>
+      </Screen>
+    )
+  }
+
+  const listHeader = (total: number | null) => (
+    <>
+      {tagline || category.description ? (
+        <View className="border-b border-border-default bg-surface-elevated px-4 py-4">
+          {tagline ? <Text className="text-base font-semibold text-foreground">{tagline}</Text> : null}
+          {category.description ? <Text className="text-foreground-secondary">{category.description}</Text> : null}
+        </View>
+      ) : null}
+
+      <View className="px-4 pt-4">
+        {subcategories.length > 0 ? (
+          <View className="mb-8">
+            <Text accessibilityRole="header" className="mb-4 font-display text-xl font-extrabold text-foreground">
+              Subcategories
+            </Text>
+            <Grid cols={4} gap={8}>
+              {subcategories.map(sub => (
+                <SubcategoryTile key={sub.id} category={sub} />
+              ))}
+            </Grid>
+          </View>
+        ) : null}
+        <View className="mb-6 flex-row items-center justify-between">
+          <Text accessibilityRole="header" className="font-display text-xl font-extrabold text-foreground">
+            Products ({total ?? 0})
+          </Text>
+          {(total ?? 0) > 1 || effectiveSort !== 'featured' ? <SortButton value={effectiveSort} onPress={() => setSortOpen(true)} /> : null}
+        </View>
+      </View>
+    </>
+  )
+
+  return (
+    <Screen header={header} mode="none">
+      <PagedProductGrid
+        page="category"
+        base={{ category: category.slug }}
+        sort={effectiveSort}
+        pageSize={PAGE_SIZE}
+        cols={2}
+        gap={12}
+        header={listHeader}
+        bottomInset={bottomInset}
+        empty={
+          <EmptyCard title="No Products Yet" body="We're working on adding products to this category. Check back soon!" />
+        }
+      />
+      <CompareBar />
+      <SortSheet open={sortOpen} onClose={() => setSortOpen(false)} value={effectiveSort} onApply={setSortId} />
+    </Screen>
+  )
+}
